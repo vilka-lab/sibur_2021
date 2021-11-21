@@ -29,7 +29,7 @@ class SiburModel(torch.nn.Module):
 
     def forward(self, X):
         lstm_out, hidden = self.lstm(X)
-        X = hidden[0][-1, ...]
+        X = lstm_out[0, -1, ...]
         X = self.relu(X)
         X = self.linear(X)
         X = self.relu(X)

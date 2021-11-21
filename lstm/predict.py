@@ -1,6 +1,7 @@
 from model import SiburModel
 from pathlib import Path
 from dataset import get_loader
+import torch
 
 
 def load_model(model_weights):
@@ -16,6 +17,12 @@ def load_model(model_weights):
 
 def predict(df, month, num_workers=2):
     model = load_model('experiment/last.pth')
+    model = torch.quantization.quantize_dynamic(
+        model,
+        {torch.nn.Linear, torch.nn.LSTM, torch.nn.ReLU},  # a set of layers to dynamically quantize
+        dtype=torch.qint8
+        )
+
     dataloader = get_loader(
         df,
         shuffle=False,
@@ -37,5 +44,4 @@ def predict(df, month, num_workers=2):
             aggfunc='sum'
             ) \
         .reset_index()
-    preds_df
     return preds_df

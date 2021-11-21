@@ -28,11 +28,12 @@ def main(
     torch.autograd.profiler.profile(False)
     torch.autograd.profiler.emit_nvtx(False)
 
-    model = SiburModel()
+    model = SiburModel(hidden_dim=2048, num_layers=2)
     model_path = pathlib.Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=resume)
         print('Модель загружена с', model_path)
+
 
     df = pd.read_csv(data, parse_dates=["month", "date"])
     train_dataloader = get_loader(
@@ -40,7 +41,7 @@ def main(
         shuffle=True,
         period={
             'start': '2018-01-01',
-            'end': '2019-06-01'
+            'end': '2019-12-01'
             },
         num_workers=num_workers
         )
@@ -49,7 +50,7 @@ def main(
         df,
         shuffle=False,
         period={
-            'start': '2019-06-01',
+            'start': '2019-12-01',
             'end': '2020-08-01'
             },
         num_workers=num_workers
