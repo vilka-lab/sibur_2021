@@ -9,7 +9,7 @@ import pandas as pd
 
 
 def load_model(model_weights):
-    model = SiburModel(hidden_dim=2048, num_layers=2)
+    model = SiburModel(hidden_dim=2048, num_layers=2, device='cpu')
     model_path = Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=True)
@@ -20,8 +20,6 @@ def load_model(model_weights):
 
 
 def predict(df, month, num_workers=2):
-    border = df['month'].max() - pd.offsets.MonthBegin(6)
-    df = df[df['date'] >= border]
     encoder_path = ABS_PATH.joinpath('ohe_encoder.pkl')
 
     dataloader = get_loader(
@@ -49,6 +47,7 @@ def predict(df, month, num_workers=2):
     return preds_df
 
 
+torch.backends.quantized.engine = 'qnnpack'
 MODEL = load_model(ABS_PATH.joinpath('experiment', 'last.pth'))
 MODEL = torch.quantization.quantize_dynamic(
     MODEL, {torch.nn.LSTM, torch.nn.Linear}, dtype=torch.qint8

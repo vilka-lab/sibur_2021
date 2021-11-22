@@ -34,26 +34,29 @@ def main(
         model.load_model(model_path, load_train_info=resume)
         print('Модель загружена с', model_path)
 
-
     df = pd.read_csv(data, parse_dates=["month", "date"])
     train_dataloader = get_loader(
         df,
         shuffle=True,
         period={
             'start': '2018-01-01',
-            'end': '2019-12-01'
+            'end': '2020-02-01'
             },
-        num_workers=num_workers
+        num_workers=num_workers,
+        train=True,
+        encoder_path='ohe_encoder.pkl'
         )
 
     valid_dataloader = get_loader(
         df,
         shuffle=False,
         period={
-            'start': '2019-12-01',
+            'start': '2018-01-01',
             'end': '2020-08-01'
             },
-        num_workers=num_workers
+        num_workers=num_workers,
+        train=True,
+        encoder_path='ohe_encoder.pkl'
         )
 
     model.fit(
