@@ -54,8 +54,8 @@ class SiburDataset(Dataset):
         return result, target
 
 
-def get_loader(df, shuffle=False, period=None, num_workers=0):
-    with open('ohe_encoder.pkl', 'rb') as f:
+def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0):
+    with open(str(encoder_path), 'rb') as f:
         encoder = pickle.load(f)
 
     dataset = SiburDataset(

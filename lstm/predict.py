@@ -1,14 +1,18 @@
-from model import SiburModel
+import sys
 from pathlib import Path
-from dataset import get_loader
+ABS_PATH = Path(__file__).parent.absolute()
+sys.path.append(str(ABS_PATH))
 import torch
+from model import SiburModel
+from dataset import get_loader
+import pandas as pd
 
 
 def load_model(model_weights):
-    model = SiburModel()
+    model = SiburModel(hidden_dim=2048, num_layers=2)
     model_path = Path(model_weights)
     if model_path.exists():
-        model.load_model(model_path)
+        model.load_model(model_path, load_train_info=True)
         print('Модель загружена с', model_path)
     else:
         raise ValueError(f'Модель не найдена {model_weights}')
@@ -16,20 +20,18 @@ def load_model(model_weights):
 
 
 def predict(df, month, num_workers=2):
-    model = load_model('experiment/last.pth')
-    model = torch.quantization.quantize_dynamic(
-        model,
-        {torch.nn.Linear, torch.nn.LSTM, torch.nn.ReLU},  # a set of layers to dynamically quantize
-        dtype=torch.qint8
-        )
+    border = df['month'].max() - pd.offsets.MonthBegin(6)
+    df = df[df['date'] >= border]
+    encoder_path = ABS_PATH.joinpath('ohe_encoder.pkl')
 
     dataloader = get_loader(
         df,
+        encoder_path=encoder_path,
         shuffle=False,
         period=None,
         num_workers=num_workers
         )
-    preds = model.predict(dataloader)
+    preds = MODEL.predict(dataloader)
 
     agg_cols = ["material_code", "company_code", "country", "region",
                 "manager_code", "material_lvl1_name", "material_lvl2_name",
@@ -45,3 +47,9 @@ def predict(df, month, num_workers=2):
             ) \
         .reset_index()
     return preds_df
+
+
+MODEL = load_model(ABS_PATH.joinpath('experiment', 'last.pth'))
+MODEL = torch.quantization.quantize_dynamic(
+    MODEL, {torch.nn.LSTM, torch.nn.Linear}, dtype=torch.qint8
+)

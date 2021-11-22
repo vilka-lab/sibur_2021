@@ -31,7 +31,7 @@ class SiburModel(torch.nn.Module):
         lstm_out, hidden = self.lstm(X)
         X = lstm_out[0, -1, ...]
         X = self.relu(X)
-        X = self.linear(X)
+        X = self.linear(X[None, ...])
         X = self.relu(X)
         return X
 
