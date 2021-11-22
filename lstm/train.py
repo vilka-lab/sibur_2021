@@ -40,7 +40,7 @@ def main(
         shuffle=True,
         period={
             'start': '2018-01-01',
-            'end': '2020-02-01'
+            'end': '2020-07-01'
             },
         num_workers=num_workers,
         train=True,

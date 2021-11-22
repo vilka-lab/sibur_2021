@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 from sklearn.metrics import mean_squared_log_error
+import torch.nn.functional as F
 
 
 class SiburModel(torch.nn.Module):
@@ -16,7 +17,8 @@ class SiburModel(torch.nn.Module):
                  device=None):
         super().__init__()
         self.lstm = torch.nn.LSTM(input_dim, hidden_dim, batch_first=True,
-                                  num_layers=num_layers, bidirectional=False)
+                                  num_layers=num_layers, bidirectional=False,
+                                  dropout=0.5)
         self.relu = torch.nn.ReLU()
         self.linear = torch.nn.Linear(hidden_dim, 1)
 
@@ -310,4 +312,7 @@ class Ensemble():
 
 
 def RMSLE(pred, gt):
-    return (((torch.log(gt + 1) - torch.log(pred + 1)) ** 2) ** 0.5).mean()
+    pred = torch.log(pred + 1)
+    gt = torch.log(gt + 1)
+    return F.mse_loss(pred, gt) ** 0.5
+    # return (((torch.log(gt + 1) - torch.log(pred + 1)) ** 2) ** 0.5).mean()
