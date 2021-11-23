@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 import torch
+import torch.nn.functional as F
 import numpy as np
 import pickle
 
@@ -50,17 +51,19 @@ class SiburDataset(Dataset):
         else:
             target = 0
 
+        vector = self.encoder.transform([row.name]).toarray().flatten()
+        vector = torch.tensor(vector)
+
         result = []
         for ix, val in zip(row.index, row):
-            vector = list(row.name) + [ix.month]
-            vector = self.encoder.transform([vector]).toarray().flatten()
-            new_val = np.concatenate([vector, np.array([val])])
+            month = F.one_hot(torch.tensor(ix.month), num_classes=12)
+            new_val = np.array([val, ])
             new_val = new_val
             result.append(new_val)
 
         target = torch.tensor([target], dtype=torch.float32)
         result = torch.tensor(np.array(result), dtype=torch.float32)
-        return result, target
+        return result, vector, target
 
 
 def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0,
