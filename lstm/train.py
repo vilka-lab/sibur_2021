@@ -43,7 +43,7 @@ def main(
             'end': '2020-07-01'
             },
         num_workers=num_workers,
-        train=True,
+        task='train',
         encoder_path='ohe_encoder.pkl'
         )
 
@@ -55,7 +55,7 @@ def main(
             'end': '2020-08-01'
             },
         num_workers=num_workers,
-        train=True,
+        task='valid',
         encoder_path='ohe_encoder.pkl'
         )
 

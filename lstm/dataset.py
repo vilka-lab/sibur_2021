@@ -5,9 +5,14 @@ import pickle
 
 
 class SiburDataset(Dataset):
-    def __init__(self, data, encoder, period=None, train=False):
+    def __init__(self, data, encoder, period=None, task='train'):
         """period['start'] - period['end'] for train and test
-        if period = None, dataset in inference phase"""
+        if period = None, dataset in inference phase
+        
+        task - train/valid/inference,
+               train for random sequences
+               valid for row[:-1] sequences
+               inference for full sequences and target=0"""
         super().__init__()
         agg_cols = ["material_code", "company_code", "country", "region",
                     "manager_code", "material_lvl1_name", "material_lvl2_name",
@@ -17,7 +22,7 @@ class SiburDataset(Dataset):
                         & (data['date'] < period['end'])]
         self.data = data.groupby(agg_cols + ["month"])["volume"].sum().unstack(fill_value=0)
         self.encoder = encoder
-        self.train = train
+        self.task = task
 
 
     def __len__(self):
@@ -28,9 +33,20 @@ class SiburDataset(Dataset):
         row = self.data.iloc[index]
         row = row.sort_index()
 
-        if self.train:
+        if self.task == 'valid':
             target = row[-1]
             row = row.iloc[:-1]
+        elif self.task == 'train':
+            # get left border of random slice
+            num_rows = len(row)
+            start = np.random.randint(0, num_rows - 7)
+            row = row.iloc[start:]
+
+            # get right border of random slice
+            num_rows = len(row)
+            end = np.random.randint(6, num_rows - 1)
+            target = row.iloc[end]
+            row = row.iloc[:end]
         else:
             target = 0
 
@@ -48,7 +64,7 @@ class SiburDataset(Dataset):
 
 
 def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0,
-               train=False):
+               task='train'):
     with open(str(encoder_path), 'rb') as f:
         encoder = pickle.load(f)
 
@@ -56,7 +72,7 @@ def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0,
         data=df,
         encoder=encoder,
         period=period,
-        train=train
+        task=task
         )
 
     dataloader = DataLoader(

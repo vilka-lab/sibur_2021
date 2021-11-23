@@ -27,7 +27,8 @@ def predict(df, month, num_workers=2):
         encoder_path=encoder_path,
         shuffle=False,
         period=None,
-        num_workers=num_workers
+        num_workers=num_workers,
+        task='inference'
         )
     preds = MODEL.predict(dataloader)
 
