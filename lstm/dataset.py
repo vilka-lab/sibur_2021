@@ -1,8 +1,9 @@
 from torch.utils.data import Dataset, DataLoader
 import torch
-import torch.nn.functional as F
 import numpy as np
 import pickle
+import pandas as pd
+from tqdm import tqdm
 
 
 class SiburDataset(Dataset):
@@ -51,19 +52,16 @@ class SiburDataset(Dataset):
         else:
             target = 0
 
-        vector = self.encoder.transform([row.name]).toarray().flatten()
-        vector = torch.tensor(vector)
+        # get the month for which we should predict value
+        next_month = row.index[-1] + pd.offsets.MonthBegin(1)  
+        vector = list(row.name) + [next_month.month]
+ 
+        vector = self.encoder.transform([vector]).toarray().flatten()
+        vector = torch.tensor(vector, dtype=torch.float32)
 
-        result = []
-        for ix, val in zip(row.index, row):
-            month = F.one_hot(torch.tensor(ix.month), num_classes=12)
-            new_val = np.array([val, ])
-            new_val = new_val
-            result.append(new_val)
-
+        values = torch.tensor(row.values, dtype=torch.float32).reshape(-1, 1)      
         target = torch.tensor([target], dtype=torch.float32)
-        result = torch.tensor(np.array(result), dtype=torch.float32)
-        return result, vector, target
+        return values, vector, target
 
 
 def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0,
@@ -86,3 +84,29 @@ def get_loader(df, encoder_path, shuffle=False, period=None, num_workers=0,
         pin_memory=(num_workers > 0)
         )
     return dataloader
+
+
+def test_dataset(path):
+    df = pd.read_csv(path, parse_dates=["month", "date"])
+    train_dataloader = get_loader(
+        df,
+        shuffle=True,
+        period={
+            'start': '2018-01-01',
+            'end': '2020-07-01'
+            },
+        num_workers=0,
+        task='train',
+        encoder_path='ohe_encoder.pkl'
+        )
+    for X, vector, target in tqdm(train_dataloader):
+        pass
+    
+    print()
+    print(f'X shape = {X.shape}, vector shape = {vector.shape}, target shape = {target.shape}')
+    
+    
+if __name__ == '__main__':
+    path = '../sc2021_train_deals.csv'
+    test_dataset(path)
+    

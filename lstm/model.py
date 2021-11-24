@@ -13,14 +13,22 @@ import torch.nn.functional as F
 
 
 class SiburModel(torch.nn.Module):
-    def __init__(self, input_dim=539, hidden_dim=1024, num_layers=2,
-                 device=None):
+    def __init__(self, device=None):
         super().__init__()
-        self.lstm = torch.nn.LSTM(input_dim, hidden_dim, batch_first=True,
-                                  num_layers=num_layers, bidirectional=False,
-                                  dropout=0.5)
+        hidden_size = 128
+        self.lstm = torch.nn.LSTM(1, hidden_size, batch_first=True,
+                                  num_layers=2, bidirectional=False,
+                                  dropout=0.5, bias=False)
+        
+        vector_size = 538
+        vector_embedding = 64
+        self.cat_linear = torch.nn.Linear(vector_size, vector_embedding, bias=False)
+        
+        linear_hidden_size = hidden_size + vector_embedding
+        self.linear_1 = torch.nn.Linear(linear_hidden_size, linear_hidden_size*2,
+                                        bias=False)
+        self.linear_2 = torch.nn.Linear(linear_hidden_size*2, 1, bias=False)
         self.relu = torch.nn.ReLU()
-        self.linear = torch.nn.Linear(hidden_dim, 1)
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -29,12 +37,20 @@ class SiburModel(torch.nn.Module):
         self.epoch = 0
 
 
-    def forward(self, X):
+    def forward(self, X, vector):
+        X = X.log1p() - 3
         lstm_out, hidden = self.lstm(X)
-        X = lstm_out[:, -1, ...]
+        vector = self.cat_linear(vector)
+        
+        X = torch.cat([lstm_out[:, -1, ...], vector], dim=1)
         X = self.relu(X)
-        X = self.linear(X)
+        
+        X = self.linear_1(X)
         X = self.relu(X)
+        
+        X = self.linear_2(X)
+        X = self.relu(X)
+        X = X.exp() - 1
         return X
 
 
@@ -162,14 +178,15 @@ class SiburModel(torch.nn.Module):
         predictions = []
         gt = []
         with tqdm(total=len(train_loader)) as progress_bar:
-            for X, y in train_loader:
+            for X, vector, y in train_loader:
                 self.optimizer.zero_grad()
 
                 X = X.to(self.device)
+                vector = vector.to(self.device)
                 y = y.to(self.device)
 
                 with torch.cuda.amp.autocast():
-                    preds = self.forward(X)
+                    preds = self.forward(X, vector)
                     loss_val = self.loss(preds, y)
 
                 self.scaler.scale(loss_val).backward()
@@ -208,11 +225,12 @@ class SiburModel(torch.nn.Module):
         losses = []
         with tqdm(total=len(val_loader)) as progress_bar:
             with torch.no_grad():
-                for X, y in val_loader:
+                for X, vector, y in val_loader:
                     X = X.to(self.device)
+                    vector = vector.to(self.device)
                     y = y.to(self.device)
 
-                    preds = self.forward(X)
+                    preds = self.forward(X, vector)
                     loss_val = self.loss(preds, y)
 
                     losses.append(loss_val.cpu().detach().numpy())
@@ -260,9 +278,10 @@ class SiburModel(torch.nn.Module):
         self.eval()
         result = []
         with torch.no_grad():
-            for X, _ in tqdm(dataloader, disable=(not verbose)):
+            for X, vector, _ in tqdm(dataloader, disable=(not verbose)):
                 X = X.to(self.device)
-                preds = self.forward(X)
+                vector = vector.to(self.device)
+                preds = self.forward(X, vector)
                 result.append(preds.cpu().detach().numpy())
         result = np.concatenate(result)
         return result

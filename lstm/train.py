@@ -28,7 +28,7 @@ def main(
     torch.autograd.profiler.profile(False)
     torch.autograd.profiler.emit_nvtx(False)
 
-    model = SiburModel(hidden_dim=2048, num_layers=2)
+    model = SiburModel()
     model_path = pathlib.Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=resume)

@@ -2,14 +2,13 @@ import sys
 from pathlib import Path
 ABS_PATH = Path(__file__).parent.absolute()
 sys.path.append(str(ABS_PATH))
-import torch
+# import torch
 from model import SiburModel
 from dataset import get_loader
-import pandas as pd
 
 
 def load_model(model_weights):
-    model = SiburModel(hidden_dim=2048, num_layers=2)
+    model = SiburModel()
     model_path = Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=True)
@@ -50,6 +49,6 @@ def predict(df, month, num_workers=2):
 
 # torch.backends.quantized.engine = 'qnnpack'
 MODEL = load_model(ABS_PATH.joinpath('experiment', 'last.pth'))
-MODEL = torch.quantization.quantize_dynamic(
-    MODEL, {torch.nn.LSTM, torch.nn.Linear}, dtype=torch.qint8
-)
+# MODEL = torch.quantization.quantize_dynamic(
+#     MODEL, {torch.nn.LSTM, torch.nn.Linear}, dtype=torch.qint8
+# )
