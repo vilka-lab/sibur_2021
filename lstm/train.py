@@ -14,6 +14,7 @@ import pandas as pd
 @click.option('--epochs', help='Number of epochs', default=30)
 @click.option('--resume/--no-resume', help='Resume training process', default=False)
 @click.option('--num_workers', help='Number of workers', default=2)
+@click.option('--random_state', default=42)
 def main(
         data: str,
         model_weights: str,
@@ -21,14 +22,15 @@ def main(
         weight_decay: float,
         epochs: int,
         resume: bool,
-        num_workers: int
+        num_workers: int,
+        random_state: int
         ):
     torch.backends.cudnn.benchmark = True
     torch.autograd.set_detect_anomaly(False)
     torch.autograd.profiler.profile(False)
     torch.autograd.profiler.emit_nvtx(False)
 
-    model = SiburModel()
+    model = SiburModel(seed=random_state)
     model_path = pathlib.Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=resume)

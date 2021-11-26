@@ -13,11 +13,11 @@ import torch.nn.functional as F
 
 
 class SiburModel(torch.nn.Module):
-    def __init__(self, device=None):
+    def __init__(self, device=None, seed=42):
         super().__init__()
         hidden_size = 128
         self.lstm = torch.nn.LSTM(1, hidden_size, batch_first=True,
-                                  num_layers=2, bidirectional=False,
+                                  num_layers=1, bidirectional=False,
                                   dropout=0.5, bias=False)
         
         vector_size = 538
@@ -27,8 +27,13 @@ class SiburModel(torch.nn.Module):
         linear_hidden_size = hidden_size + vector_embedding
         self.linear_1 = torch.nn.Linear(linear_hidden_size, linear_hidden_size*2,
                                         bias=False)
-        self.linear_2 = torch.nn.Linear(linear_hidden_size*2, 1, bias=False)
+        self.linear_2 = torch.nn.Linear(linear_hidden_size*2, 1,
+                                        bias=False)
+
         self.relu = torch.nn.ReLU()
+        
+        torch.manual_seed(seed)
+        self.apply(weights_init_uniform_rule)
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -38,7 +43,7 @@ class SiburModel(torch.nn.Module):
 
 
     def forward(self, X, vector):
-        X = X.log1p() - 3
+        X = X.log1p() - 4
         lstm_out, hidden = self.lstm(X)
         vector = self.cat_linear(vector)
         
@@ -285,12 +290,17 @@ class SiburModel(torch.nn.Module):
                 result.append(preds.cpu().detach().numpy())
         result = np.concatenate(result)
         return result
+    
+    
+    def postprocessing(self, gt):
+        self.rounder = Rounder(100)
+        gt = [self.rounder.get_nearest_value(x) for x in gt]
+        return np.array(gt)
 
 
 class Ensemble():
-    def __init__(self, model_paths, transforms, **params):
+    def __init__(self, model_paths, **params):
         self.models = []
-        self.transforms = transforms
 
         for path in model_paths:
             path = Path(path)
@@ -299,35 +309,21 @@ class Ensemble():
                 model.load_model(path)
                 print('Модель загружена с', path)
                 self.models.append(model)
+            else:
+                raise ValueError(f'Модель не найдена {path}')
 
 
-    def predict_proba(self, X, verbose=True):
+    def predict(self, dataloader, verbose=True):
         res = []
         for model in self.models:
-            pred = model.predict_proba(X, self.transforms, verbose)
+            pred = model.predict(dataloader, verbose)
             res.append(pred)
+            print(pred.mean())
 
-        preds = sum(res) / len(res)
-        entropy = self.get_entropy(preds)
-        return preds, entropy
-
-
-    def predict(self, X, verbose=True, threshold=1.5):
-        preds, entropy = self.predict_proba(X, verbose)
-        preds = preds.argmax(axis=1)
-        preds = self.postprocessing(preds, entropy, threshold)
-        return preds, entropy
-
-
-    def get_entropy(self, preds):
-        entropy = (-preds * np.log(preds)).sum(axis=1)
-        return entropy
-
-
-    def postprocessing(self, preds, entropy, threshold):
-        mask = entropy > threshold
-        preds[mask] = 0
-        return preds
+        res = sum(res) / len(res)
+        res = np.array(res)
+        print(res.mean())
+        return res
 
 
 def RMSLE(pred, gt):
@@ -335,3 +331,28 @@ def RMSLE(pred, gt):
     gt = torch.log(gt + 1)
     return F.mse_loss(pred, gt) ** 0.5
     # return (((torch.log(gt + 1) - torch.log(pred + 1)) ** 2) ** 0.5).mean()
+    
+    
+class Rounder():
+    def __init__(self, bins=100):
+        self.values = np.linspace(0, 9, bins)
+        
+    
+    def get_nearest_value(self, num):
+        """get nearest log"""
+        num = np.log1p(num)
+        num = min(self.values, key=lambda x: abs(x - num))
+        num = np.exp(num) - 1
+        return num
+    
+    
+def weights_init_uniform_rule(m):
+    """https://stackoverflow.com/questions/49433936/how-to-initialize-weights-in-pytorch"""
+    classname = m.__class__.__name__
+    # for every Linear layer in a model..
+    if classname.find('Linear') != -1:
+        # get the number of the inputs
+        n = m.in_features
+        y = 1.0/np.sqrt(n)
+        m.weight.data.uniform_(-y, y)
+        

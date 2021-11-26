@@ -40,13 +40,14 @@ class SiburDataset(Dataset):
             row = row.iloc[:-1]
         elif self.task == 'train':
             # get left border of random slice
+            min_period = 12
             num_rows = len(row)
-            start = np.random.randint(0, num_rows - 7)
+            start = np.random.randint(0, num_rows - min_period - 1)
             row = row.iloc[start:]
 
             # get right border of random slice
             num_rows = len(row)
-            end = np.random.randint(6, num_rows - 1)
+            end = np.random.randint(min_period, num_rows - 1)
             target = row.iloc[end]
             row = row.iloc[:end]
         else:
