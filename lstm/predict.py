@@ -14,10 +14,12 @@ def load_model(model_weights):
 
 def predict(df, month, num_workers=2):
     encoder_path = ABS_PATH.joinpath('ohe_encoder.pkl')
+    scaler_path = ABS_PATH.joinpath('standard_scaler.pkl')
 
     dataloader = get_loader(
         df,
         encoder_path=encoder_path,
+        scaler_path=scaler_path,
         shuffle=False,
         period=None,
         num_workers=num_workers,
@@ -43,9 +45,7 @@ def predict(df, month, num_workers=2):
 
 weights_path = ABS_PATH.joinpath('experiment')
 weights = [
-    weights_path.joinpath('model_1.pth'),
-    weights_path.joinpath('model_2.pth'),
-    weights_path.joinpath('model_3.pth')
+    weights_path.joinpath('last.pth')
     ]
 MODEL = load_model(weights)
 

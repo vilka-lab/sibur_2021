@@ -45,8 +45,7 @@ def main(
             'end': '2020-07-01'
             },
         num_workers=num_workers,
-        task='train',
-        encoder_path='ohe_encoder.pkl'
+        task='train'
         )
 
     valid_dataloader = get_loader(
@@ -58,7 +57,8 @@ def main(
             },
         num_workers=num_workers,
         task='valid',
-        encoder_path='ohe_encoder.pkl'
+        encoder_path='ohe_encoder.pkl',
+        scaler_path='standard_scaler.pkl'
         )
 
     model.fit(

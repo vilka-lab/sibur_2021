@@ -14,16 +14,17 @@ import torch.nn.functional as F
 
 class SiburModel(torch.nn.Module):
     def __init__(self, device=None, seed=42):
+        torch.manual_seed(seed)
         super().__init__()
         hidden_size = 128
-        self.lstm = torch.nn.LSTM(1, hidden_size, batch_first=True,
+        self.lstm = torch.nn.LSTM(7, hidden_size, batch_first=True,
                                   num_layers=1, bidirectional=False,
                                   dropout=0.5, bias=False)
-        
+
         vector_size = 538
         vector_embedding = 64
         self.cat_linear = torch.nn.Linear(vector_size, vector_embedding, bias=False)
-        
+
         linear_hidden_size = hidden_size + vector_embedding
         self.linear_1 = torch.nn.Linear(linear_hidden_size, linear_hidden_size*2,
                                         bias=False)
@@ -31,9 +32,8 @@ class SiburModel(torch.nn.Module):
                                         bias=False)
 
         self.relu = torch.nn.ReLU()
-        
-        torch.manual_seed(seed)
-        self.apply(weights_init_uniform_rule)
+
+        # self.apply(weights_init_uniform_rule)
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -46,13 +46,13 @@ class SiburModel(torch.nn.Module):
         X = X.log1p() - 4
         lstm_out, hidden = self.lstm(X)
         vector = self.cat_linear(vector)
-        
+
         X = torch.cat([lstm_out[:, -1, ...], vector], dim=1)
         X = self.relu(X)
-        
+
         X = self.linear_1(X)
         X = self.relu(X)
-        
+
         X = self.linear_2(X)
         X = self.relu(X)
         X = X.exp() - 1
@@ -220,7 +220,6 @@ class SiburModel(torch.nn.Module):
 
         storage['train_losses'].append(loss_val)
         storage['train_metrics'].append(metric_val)
-        self.scheduler.step(loss_val)
 
 
     def _test_loop(self, val_loader, storage):
@@ -255,6 +254,7 @@ class SiburModel(torch.nn.Module):
                 progress_bar.set_description('Validation: loss = {:.4f}, metric = {:.4f}'.format(
                     loss_val, metric_val))
 
+        self.scheduler.step(loss_val)
         storage['test_losses'].append(loss_val)
         storage['test_metrics'].append(metric_val)
 
@@ -290,8 +290,8 @@ class SiburModel(torch.nn.Module):
                 result.append(preds.cpu().detach().numpy())
         result = np.concatenate(result)
         return result
-    
-    
+
+
     def postprocessing(self, gt):
         self.rounder = Rounder(100)
         gt = [self.rounder.get_nearest_value(x) for x in gt]
@@ -331,21 +331,21 @@ def RMSLE(pred, gt):
     gt = torch.log(gt + 1)
     return F.mse_loss(pred, gt) ** 0.5
     # return (((torch.log(gt + 1) - torch.log(pred + 1)) ** 2) ** 0.5).mean()
-    
-    
+
+
 class Rounder():
     def __init__(self, bins=100):
         self.values = np.linspace(0, 9, bins)
-        
-    
+
+
     def get_nearest_value(self, num):
         """get nearest log"""
         num = np.log1p(num)
         num = min(self.values, key=lambda x: abs(x - num))
         num = np.exp(num) - 1
         return num
-    
-    
+
+
 def weights_init_uniform_rule(m):
     """https://stackoverflow.com/questions/49433936/how-to-initialize-weights-in-pytorch"""
     classname = m.__class__.__name__
@@ -355,4 +355,3 @@ def weights_init_uniform_rule(m):
         n = m.in_features
         y = 1.0/np.sqrt(n)
         m.weight.data.uniform_(-y, y)
-        
