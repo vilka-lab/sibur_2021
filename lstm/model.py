@@ -17,7 +17,7 @@ class SiburModel(torch.nn.Module):
         torch.manual_seed(seed)
         super().__init__()
         hidden_size = 128
-        self.lstm = torch.nn.LSTM(7, hidden_size, batch_first=True,
+        self.lstm = torch.nn.LSTM(47, hidden_size, batch_first=True,
                                   num_layers=1, bidirectional=False,
                                   dropout=0.5, bias=False)
 
@@ -43,7 +43,7 @@ class SiburModel(torch.nn.Module):
 
 
     def forward(self, X, vector):
-        X = X.log1p() - 4
+        X = X.log1p() - 2.67
         lstm_out, hidden = self.lstm(X)
         vector = self.cat_linear(vector)
 

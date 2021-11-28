@@ -23,22 +23,42 @@ class SiburDataset(Dataset):
         if period is not None:
             data = data[(data['date'] >= period['start'])
                         & (data['date'] < period['end'])]
+
+        self.raw_data = data
         self.data = data.groupby(self.agg_cols + ["month"])["volume"].sum().unstack(fill_value=0)
         self.encoder = encoder
         self.task = task
-        self.materials = data.groupby(['material_code', 'month'])['volume'].sum().unstack(fill_value=0)
-        self.managers = data.groupby(['manager_code', 'month'])['volume'].sum().unstack(fill_value=0)
-        self.regions = data.groupby(['region', 'month'])['volume'].sum().unstack(fill_value=0)
-        self.countries = data.groupby(['country', 'month'])['volume'].sum().unstack(fill_value=0)
-        self.companies = data.groupby(['company_code', 'month'])['volume'].sum().unstack(fill_value=0)
-        self.total = data.groupby(['month'])['volume'].sum()
+        self._create_features()
 
         if task == 'train':
             self.create_encoder(data)
-            self.create_scaler()
+            # self.create_scaler()
         else:
             self.encoder = encoder
-            self.scaler = scaler
+            # self.scaler = scaler
+
+
+    def _create_features(self):
+        self.total = self.raw_data.groupby(['month'])['volume'].sum()
+
+        self.categories = ["material_code", "company_code", "country", "region",
+                         "manager_code", "material_lvl1_name", "material_lvl2_name",
+                         "material_lvl3_name", "contract_type"]
+        functions = {'sum': 'sum', 'mean': 'mean', 'var': 'var',
+                     'min': 'min', 'max': 'max'}
+        self.subsets = {}
+
+        for cat in self.categories:
+            self.subsets[cat] = {}
+            for f_name, func in functions.items():
+                subset = self.raw_data.pivot_table(
+                    index=cat,
+                    columns='month',
+                    values='volume',
+                    aggfunc=func,
+                    fill_value=0
+                    )
+                self.subsets[cat][f_name] = subset
 
 
     def create_encoder(self, data):
@@ -76,35 +96,25 @@ class SiburDataset(Dataset):
 
 
     def _build_ts(self, row):
+        """Build timeseries with additional features from row."""
         values = row.values.reshape(-1, 1)
         total = self.total.loc[row.index].values.reshape(-1, 1)
         metadata = row.name
 
-        material_index = metadata[self.agg_cols.index('material_code')]
-        materials = self.materials.loc[material_index, row.index].values.reshape(-1, 1)
+        timeser = np.concatenate([values, total], axis=1)
 
-        manager_index = metadata[self.agg_cols.index('manager_code')]
-        managers = self.managers.loc[manager_index, row.index].values.reshape(-1, 1)
+        for cat in self.subsets.keys():
+            for func, sub in self.subsets[cat].items():
+                # get right category number from metadata
+                cat_index = metadata[self.agg_cols.index(cat)]
+                # get timeser from subset
+                try:
+                    timeser_part = sub.loc[cat_index, row.index].values.reshape(-1, 1)
+                except KeyError:
+                    timeser_part = np.zeros_like(row.values).reshape(-1, 1)
 
-        region_index = metadata[self.agg_cols.index('region')]
-        regions = self.regions.loc[region_index, row.index].values.reshape(-1, 1)
+                timeser = np.concatenate([timeser, timeser_part], axis=1)
 
-        country_index = metadata[self.agg_cols.index('country')]
-        countries = self.countries.loc[country_index, row.index].values.reshape(-1, 1)
-
-        company_index = metadata[self.agg_cols.index('company_code')]
-        companies = self.companies.loc[company_index, row.index].values.reshape(-1, 1)
-
-        timeser = np.concatenate([
-                values,
-                total,
-                materials,
-                managers,
-                regions,
-                countries,
-                companies
-            ],
-            axis=1)
         return timeser
 
 
@@ -192,7 +202,8 @@ def test_dataset(path):
 
     print()
     print(f'X shape = {X.shape}, vector shape = {vector.shape}, target shape = {target.shape}')
-    print(X)
+    print(X[0, -1, :])
+    print(target)
 
 
 if __name__ == '__main__':
