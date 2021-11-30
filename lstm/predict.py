@@ -14,16 +14,15 @@ def load_model(model_weights):
 
 def predict(df, month, num_workers=2):
     encoder_path = ABS_PATH.joinpath('ohe_encoder.pkl')
-    scaler_path = ABS_PATH.joinpath('standard_scaler.pkl')
 
     dataloader = get_loader(
         df,
         encoder_path=encoder_path,
-        scaler_path=scaler_path,
         shuffle=False,
         period=None,
         num_workers=num_workers,
-        task='inference'
+        task='inference',
+        batch_size=8
         )
     preds = MODEL.predict(dataloader)
 

@@ -8,14 +8,17 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 class SiburDataset(Dataset):
-    def __init__(self, data, encoder=None, scaler=None, period=None, task='train'):
+    def __init__(self, data, encoder=None, period=None,
+                 task='train', seq_range=13):
         """period['start'] - period['end'] for train and test
         if period = None, dataset in inference phase
 
         task - train/valid/inference,
                train for random sequences
                valid for row[:-1] sequences
-               inference for full sequences and target=0"""
+               inference for full sequences and target=0
+
+        seq_range - range in month for sequence length"""
         super().__init__()
         self.agg_cols = ["material_code", "company_code", "country", "region",
                          "manager_code", "material_lvl1_name", "material_lvl2_name",
@@ -24,28 +27,37 @@ class SiburDataset(Dataset):
             data = data[(data['date'] >= period['start'])
                         & (data['date'] < period['end'])]
 
-        self.raw_data = data
+        self.raw_data = data.copy()
         self.data = data.groupby(self.agg_cols + ["month"])["volume"].sum().unstack(fill_value=0)
         self.encoder = encoder
         self.task = task
         self._create_features()
+        self.seq_range = seq_range
 
         if task == 'train':
             self.create_encoder(data)
+            self._build_long_dataset(period=seq_range)
             # self.create_scaler()
         else:
             self.encoder = encoder
+            # get only last columns of the data
+            self.data = self.data.iloc[:, -seq_range:]
+
+            if self.data.shape[1] != seq_range:
+                raise ValueError(f'Wrong shape of dataset {self.data.shape}')
             # self.scaler = scaler
 
 
     def _create_features(self):
+        """Build statistics along all company by each month."""
         self.total = self.raw_data.groupby(['month'])['volume'].sum()
 
-        self.categories = ["material_code", "company_code", "country", "region",
-                         "manager_code", "material_lvl1_name", "material_lvl2_name",
-                         "material_lvl3_name", "contract_type"]
-        functions = {'sum': 'sum', 'mean': 'mean', 'var': 'var',
-                     'min': 'min', 'max': 'max'}
+        self.categories = [
+            "material_code", "company_code", "country", "region",
+            "manager_code", "material_lvl1_name", "material_lvl2_name",
+            "material_lvl3_name", "contract_type"
+            ]
+        functions = {'sum': 'sum'}
         self.subsets = {}
 
         for cat in self.categories:
@@ -66,12 +78,12 @@ class SiburDataset(Dataset):
         self.encoder = OneHotEncoder()
 
         data['month_'] = data['date'].dt.month
-        self.encoder.fit(data[self.agg_cols + ['month_']])
+        self.encoder.fit(data[self.agg_cols + ['month_']].values)
 
         with open('ohe_encoder.pkl', 'wb') as f:
             pickle.dump(self.encoder, f)
 
-        features = self.encoder.transform(data[self.agg_cols + ['month_']]).shape[1]
+        features = self.encoder.transform(data[self.agg_cols + ['month_']].values).shape[1]
         print('OHE_encoder created with', features, 'features')
 
 
@@ -114,79 +126,100 @@ class SiburDataset(Dataset):
                     timeser_part = np.zeros_like(row.values).reshape(-1, 1)
 
                 timeser = np.concatenate([timeser, timeser_part], axis=1)
-
         return timeser
+
+
+    def _build_long_dataset(self, period=12):
+        groups = []
+        # store information about last month
+        self.months = []
+        self.denominator = self.data.shape[0]
+
+        for i in range(self.data.shape[1] - period):
+            subset = self.data.iloc[:, i:period + i]
+
+            self.months.append(subset.columns[-1])
+            subset.columns = np.arange(0, period)
+            groups.append(subset)
+        self.data = pd.concat(groups, axis=0)
 
 
     def __getitem__(self, index):
         row = self.data.iloc[index]
         row = row.sort_index()
-        values = self._build_ts(row)
 
-        if self.task == 'valid':
-            target = values[-1, 0]
-            values = values[:-1, :]
-        elif self.task == 'train':
-            # get left border of random slice
-            min_period = 12
-            num_rows = len(values)
-            start = np.random.randint(0, num_rows - min_period - 1)
-            values = values[start:, :]
-            row = row[start:]
+        if self.task == 'train':
+            row.index = pd.date_range(
+                start=self.months[index // self.denominator] - pd.offsets.MonthBegin(self.seq_range - 1),
+                periods=self.seq_range, freq='MS'
+                )
 
-            # get right border of random slice
-            num_rows = len(values)
-            end = np.random.randint(min_period, num_rows - 1)
-            target = values[end, 0]
-            values = values[:end, :]
-            row = row[:end]
+        if self.task in ['valid', 'train']:
+            target = row.values[-1]
+            row = row[:-1]
         else:
             target = 0
+            # we use only 12 months for prediction
+            row = row[1:]
 
-        # get the month for which we should predict value
+        values = self._build_ts(row)
+        values = torch.tensor(values, dtype=torch.float32)
+        target = torch.tensor([target], dtype=torch.float32)
+
         next_month = row.index[-1] + pd.offsets.MonthBegin(1)
         vector = list(row.name) + [next_month.month]
         vector = self.encoder.transform([vector]).toarray().flatten()
         vector = torch.tensor(vector, dtype=torch.float32)
-
-        values = torch.tensor(values, dtype=torch.float32)
-        target = torch.tensor([target], dtype=torch.float32)
         return values, vector, target
 
 
-def get_loader(df, encoder_path=None, scaler_path=None, shuffle=False,
-               period=None, num_workers=0, task='train'):
+def get_loader(df, encoder_path=None, shuffle=False,
+               period=None, num_workers=0, task='train', batch_size=1):
     if task != 'train':
         with open(str(encoder_path), 'rb') as f:
             encoder = pickle.load(f)
-
-        with open(str(scaler_path), 'rb') as f:
-            scaler = pickle.load(f)
     else:
         encoder = None
-        scaler = None
+
 
     dataset = SiburDataset(
         data=df,
         encoder=encoder,
-        scaler=scaler,
         period=period,
         task=task
         )
 
     dataloader = DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=(num_workers > 0)
+        pin_memory=(num_workers > 0),
+        drop_last=(task=='train')
         )
     return dataloader
 
 
 
 def test_dataset(path):
+    def show_res(X, vector, target):
+        print(f'X shape = {X.shape}, vector shape = {vector.shape}, target shape = {target.shape}')
+        print(X[0, -1, :])
+        print(target)
+
     df = pd.read_csv(path, parse_dates=["month", "date"])
+    dataset = SiburDataset(
+        data=df,
+        period={
+            'start': '2018-01-01',
+            'end': '2020-07-01'
+            },
+        task='train'
+        )
+    print(len(dataset))
+    next(iter(dataset))
+
+
     train_dataloader = get_loader(
         df,
         shuffle=True,
@@ -195,15 +228,51 @@ def test_dataset(path):
             'end': '2020-07-01'
             },
         num_workers=0,
-        task='train'
+        task='train',
+        batch_size=8
         )
     for X, vector, target in tqdm(train_dataloader):
         pass
 
     print()
-    print(f'X shape = {X.shape}, vector shape = {vector.shape}, target shape = {target.shape}')
-    print(X[0, -1, :])
-    print(target)
+    print('TRAIN')
+    show_res(X, vector, target)
+
+    train_dataloader = get_loader(
+        df,
+        shuffle=False,
+        period={
+            'start': '2018-01-01',
+            'end': '2020-07-01'
+            },
+        num_workers=0,
+        task='valid',
+        encoder_path='ohe_encoder.pkl',
+        batch_size=8
+        )
+    for X, vector, target in tqdm(train_dataloader):
+        pass
+
+    print()
+    print('VALID')
+    show_res(X, vector, target)
+
+    inf_dataloader = get_loader(
+        df,
+        encoder_path='ohe_encoder.pkl',
+        shuffle=False,
+        period=None,
+        num_workers=0,
+        task='inference',
+        batch_size=8
+        )
+
+    for X, vector, target in tqdm(inf_dataloader):
+        pass
+
+    print()
+    print('INFERENCE')
+    show_res(X, vector, target)
 
 
 if __name__ == '__main__':
