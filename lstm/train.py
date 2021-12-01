@@ -15,6 +15,7 @@ import pandas as pd
 @click.option('--resume/--no-resume', help='Resume training process', default=False)
 @click.option('--num_workers', help='Number of workers', default=2)
 @click.option('--random_state', default=42)
+@click.option('--batch_size', default=8)
 def main(
         data: str,
         model_weights: str,
@@ -23,7 +24,8 @@ def main(
         epochs: int,
         resume: bool,
         num_workers: int,
-        random_state: int
+        random_state: int,
+        batch_size: int
         ):
     torch.backends.cudnn.benchmark = True
     torch.autograd.set_detect_anomaly(False)
@@ -46,7 +48,7 @@ def main(
             },
         num_workers=num_workers,
         task='train',
-        batch_size=8
+        batch_size=batch_size
         )
 
     valid_dataloader = get_loader(
@@ -59,7 +61,7 @@ def main(
         num_workers=num_workers,
         task='valid',
         encoder_path='ohe_encoder.pkl',
-        batch_size=8
+        batch_size=batch_size
         )
 
     model.fit(
