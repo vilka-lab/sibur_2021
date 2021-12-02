@@ -4,7 +4,9 @@ from dataset import get_loader
 import click
 import torch
 import pandas as pd
+import datetime
 
+path_to_rates = pathlib.Path(__file__).parent.joinpath('exrates.csv')
 
 @click.command()
 @click.option('--data', help='Path to train data', default='../sc2021_train_deals.csv')
@@ -38,9 +40,26 @@ def main(
         model.load_model(model_path, load_train_info=resume)
         print('Модель загружена с', model_path)
 
-    df = pd.read_csv(data, parse_dates=["month", "date"])   
+    df = pd.read_csv(data, parse_dates=["month", "date"])  
+    df_currencies = pd.read_csv(path_to_rates.parent.joinpath('currencies.csv'), encoding = 'cp1251')
+    
+    df_exrates = pd.read_csv(path_to_rates)
+    df_exrates['rate'] = df_exrates['rate'].str.replace('_', '.').astype(float)
+    
+#да, пока залупа
+    for row in df_exrates.index:
+        df_exrates.loc[row,'date'] = datetime.datetime(year = df_exrates.loc[row, 'y'], 
+                                                    month = df_exrates.loc[row, 'm'], 
+                                                    day = df_exrates.loc[row, 'd'])
+    
+    df_exrates = df_exrates.pivot_table(index = 'date', columns = 'curr', values = 'rate', aggfunc = 'mean')
+    
+
+    
     train_dataloader = get_loader(
         df,
+        df_exrates,
+        df_currencies,
         shuffle=True,
         period={
             'start': '2018-01-01',
@@ -53,6 +72,8 @@ def main(
 
     valid_dataloader = get_loader(
         df,
+        df_exrates,
+        df_currencies,
         shuffle=False,
         period={
             'start': '2018-01-01',

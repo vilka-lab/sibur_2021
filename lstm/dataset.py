@@ -6,8 +6,13 @@ import pandas as pd
 from tqdm import tqdm
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+import pathlib
+import datetime
+
+path_to_rates = pathlib.Path(__file__).parent.joinpath('exrates.csv')
+
 class SiburDataset(Dataset):
-    def __init__(self, data, encoder=None, period=None,
+    def __init__(self, data, currency_data, df_currencies, encoder=None, period=None,
                  task='train', seq_range=13):
         """period['start'] - period['end'] for train and test
         if period = None, dataset in inference phase
@@ -19,11 +24,13 @@ class SiburDataset(Dataset):
 
         seq_range - range in month for sequence length"""
         super().__init__()
+
         data = self._add_region(data)
+        data = self._add_currency(data, df_currencies)
         self.agg_cols = ["material_code", "company_code", "country", "region",
                          "manager_code", "material_lvl1_name", "material_lvl2_name",
                          "material_lvl3_name", "contract_type",
-                         'region_big']
+                         'region_big', 'currency']
         if period is not None:
             data = data[(data['date'] >= period['start'])
                         & (data['date'] < period['end'])]
@@ -36,6 +43,9 @@ class SiburDataset(Dataset):
         self.task = task
         self._create_features()
         self.seq_range = seq_range
+        
+        self.currency_data = currency_data
+
 
         if task == 'train':
             self.create_encoder(data)
@@ -59,7 +69,7 @@ class SiburDataset(Dataset):
             "material_code", "company_code", "country", "region",
             "manager_code", "material_lvl1_name", "material_lvl2_name",
             "material_lvl3_name", "contract_type",
-            'region_big'
+            'region_big', 'currency'
             ]
         functions = {'sum': 'sum'}
         self.subsets = {}
@@ -130,6 +140,11 @@ class SiburDataset(Dataset):
                     timeser_part = np.zeros_like(row.values).reshape(-1, 1)
 
                 timeser = np.concatenate([timeser, timeser_part], axis=1)
+        
+        to_add = np.array([self.currency_data.loc[x, metadata[-1]] for x in row.index])
+
+        timeser = np.concatenate([timeser, to_add.reshape(-1, 1)],axis = 1)
+
         return timeser
 
 
@@ -176,6 +191,11 @@ class SiburDataset(Dataset):
         vector = torch.tensor(vector, dtype=torch.float32)
         return values, vector, target
     
+    def _add_currency(self, data, df_currencies):
+        data['currency'] = data['country'].map(dict(zip(df_currencies['ix'],
+                                               df_currencies['Валюта'])))
+        
+        return data
     
     def _add_region(self, data):
         reg_dict = {'Литва': 'европа',
@@ -286,7 +306,7 @@ class SiburDataset(Dataset):
         return data
 
 
-def get_loader(df, encoder_path=None, shuffle=False,
+def get_loader(df, df_exrates, df_currencies, encoder_path=None, shuffle=False,
                period=None, num_workers=0, task='train', batch_size=1):
     if task != 'train':
         with open(str(encoder_path), 'rb') as f:
@@ -297,6 +317,8 @@ def get_loader(df, encoder_path=None, shuffle=False,
 
     dataset = SiburDataset(
         data=df,
+        currency_data = df_exrates,
+        df_currencies = df_currencies,
         encoder=encoder,
         period=period,
         task=task
@@ -323,9 +345,23 @@ def test_dataset(path):
     
 
     df = pd.read_csv(path, parse_dates=["month", "date"])
+    df_currencies = pd.read_csv(path_to_rates.parent.joinpath('currencies.csv'), encoding = 'cp1251')
     
+    df_exrates = pd.read_csv(path_to_rates)
+    df_exrates['rate'] = df_exrates['rate'].str.replace('_', '.').astype(float)
+
+#да, пока залупа
+    for row in df_exrates.index:
+        df_exrates.loc[row,'date'] = datetime.datetime(year = df_exrates.loc[row, 'y'], 
+                                                    month = df_exrates.loc[row, 'm'], 
+                                                    day = df_exrates.loc[row, 'd'])
+        
+    df_exrates = df_exrates.pivot_table(index = 'date', columns = 'curr', values = 'rate', aggfunc = 'mean')
+        
     dataset = SiburDataset(
         data=df,
+        currency_data = df_exrates,
+        df_currencies = df_currencies,
         period={
             'start': '2018-01-01',
             'end': '2020-07-01'
@@ -338,6 +374,8 @@ def test_dataset(path):
 
     train_dataloader = get_loader(
         df,
+        df_exrates,
+        df_currencies,
         shuffle=True,
         period={
             'start': '2018-01-01',
@@ -356,6 +394,8 @@ def test_dataset(path):
 
     train_dataloader = get_loader(
         df,
+        df_exrates,
+        df_currencies,
         shuffle=False,
         period={
             'start': '2018-01-01',
@@ -375,6 +415,8 @@ def test_dataset(path):
 
     inf_dataloader = get_loader(
         df,
+        df_exrates,
+        df_currencies,
         encoder_path='ohe_encoder.pkl',
         shuffle=False,
         period=None,
