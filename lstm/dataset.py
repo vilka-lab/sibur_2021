@@ -299,7 +299,8 @@ def get_loader(df, encoder_path=None, shuffle=False,
         data=df,
         encoder=encoder,
         period=period,
-        task=task
+        task=task,
+        seq_range=10
         )
 
     dataloader = DataLoader(
