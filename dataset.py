@@ -1,14 +1,24 @@
+from __future__ import annotations
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy as np
 import pickle
 import pandas as pd
 from tqdm import tqdm
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+from typing import Optional
+from pathlib import Path
+
 
 class SiburDataset(Dataset):
-    def __init__(self, data, encoder=None, period=None,
-                 task='train', seq_range=13):
+    def __init__(
+            self,
+            data: pd.DataFrame,
+            encoder: Optional[OneHotEncoder] = None,
+            period: Optional[dict[str, str]] = None,
+            task: str = 'train',
+            seq_range: int = 13
+            ) -> None:
         """period['start'] - period['end'] for train and test
         if period = None, dataset in inference phase
 
@@ -17,7 +27,8 @@ class SiburDataset(Dataset):
                valid for row[:-1] sequences
                inference for full sequences and target=0
 
-        seq_range - range in month for sequence length"""
+        seq_range - range in month for sequence length.
+        """
         super().__init__()
         data = self._add_region(data)
         self.agg_cols = ["material_code", "company_code", "country", "region",
@@ -29,8 +40,8 @@ class SiburDataset(Dataset):
                         & (data['date'] < period['end'])]
 
         self.raw_data = data.copy()
-        
-        self.data = data.groupby(self.agg_cols + ["month"])["volume"].sum().unstack(fill_value=0)
+        self.data = data.groupby(self.agg_cols + ["month"])["volume"].sum() \
+            .unstack(fill_value=0)
         
         self.encoder = encoder
         self.task = task
@@ -40,7 +51,6 @@ class SiburDataset(Dataset):
         if task == 'train':
             self.create_encoder(data)
             self._build_long_dataset(period=seq_range)
-            # self.create_scaler()
         else:
             self.encoder = encoder
             # get only last columns of the data
@@ -48,11 +58,10 @@ class SiburDataset(Dataset):
 
             if self.data.shape[1] != seq_range:
                 raise ValueError(f'Wrong shape of dataset {self.data.shape}')
-            # self.scaler = scaler
 
 
-    def _create_features(self):
-        """Build statistics along all company by each month."""
+    def _create_features(self) -> None:
+        """Build statistics along all company by each month (global context)."""
         self.total = self.raw_data.groupby(['month'])['volume'].sum()
 
         self.categories = [
@@ -77,7 +86,7 @@ class SiburDataset(Dataset):
                 self.subsets[cat][f_name] = subset
 
 
-    def create_encoder(self, data):
+    def create_encoder(self, data: pd.DataFrame) -> None:
         print('Creating ohe encoder')
         self.encoder = OneHotEncoder()
 
@@ -91,28 +100,12 @@ class SiburDataset(Dataset):
         print('OHE_encoder created with', features, 'features')
 
 
-    def create_scaler(self):
-        print('Create scaler')
-        result = []
-        for ix in range(self.__len__()):
-            timeser = self._build_ts(self.data.iloc[ix])
-            result.append(timeser)
-        result = np.concatenate(result)
-
-        self.scaler = StandardScaler()
-        self.scaler.fit(result)
-
-        with open('standard_scaler.pkl', 'wb') as f:
-            pickle.dump(self.scaler, f)
-        print('Standard scaler created')
-
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
 
-    def _build_ts(self, row):
-        """Build timeseries with additional features from row."""
+    def _build_ts(self, row: pd.Series) -> np.array:
+        """Build timeseries with global context."""
         values = row.values.reshape(-1, 1)
         total = self.total.loc[row.index].values.reshape(-1, 1)
         metadata = row.name
@@ -121,7 +114,7 @@ class SiburDataset(Dataset):
 
         for cat in self.subsets.keys():
             for func, sub in self.subsets[cat].items():
-                # get right category number from metadata
+                # get category number from metadata
                 cat_index = metadata[self.agg_cols.index(cat)]
                 # get timeser from subset
                 try:
@@ -133,7 +126,8 @@ class SiburDataset(Dataset):
         return timeser
 
 
-    def _build_long_dataset(self, period=12):
+    def _build_long_dataset(self, period: int = 12) -> None:
+        """We need more data! Vertical stack data with rolling window."""
         groups = []
         # store information about last month
         self.months = []
@@ -148,7 +142,7 @@ class SiburDataset(Dataset):
         self.data = pd.concat(groups, axis=0)
 
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, ...]:
         row = self.data.iloc[index]
         row = row.sort_index()
 
@@ -163,7 +157,7 @@ class SiburDataset(Dataset):
             row = row[:-1]
         else:
             target = 0
-            # we use only 12 months for prediction
+            # skip first month of inference row due to alignment
             row = row[1:]
 
         values = self._build_ts(row)
@@ -177,7 +171,8 @@ class SiburDataset(Dataset):
         return values, vector, target
     
     
-    def _add_region(self, data):
+    def _add_region(self, data: pd.DataFrame) -> pd.DataFrame:
+        """How about some hardcoding?"""
         reg_dict = {'Литва': 'европа',
          'Китай': 'азия',
          'Казахстан': 'снг',
@@ -286,21 +281,28 @@ class SiburDataset(Dataset):
         return data
 
 
-def get_loader(df, encoder_path=None, shuffle=False,
-               period=None, num_workers=0, task='train', batch_size=1):
+def get_loader(
+        df: pd.DataFrame,
+        encoder_path: Optional[Path] = None,
+        shuffle: bool = False,
+        period: Optional[dict[str, str]] = None,
+        num_workers: int = 0,
+        task: str = 'train',
+        batch_size: int = 1,
+        seq_range: int = 10
+        ) -> DataLoader:
     if task != 'train':
         with open(str(encoder_path), 'rb') as f:
             encoder = pickle.load(f)
     else:
         encoder = None
 
-
     dataset = SiburDataset(
         data=df,
         encoder=encoder,
         period=period,
         task=task,
-        seq_range=10
+        seq_range=seq_range
         )
 
     dataloader = DataLoader(
@@ -314,29 +316,14 @@ def get_loader(df, encoder_path=None, shuffle=False,
     return dataloader
 
 
-
-def test_dataset(path):
+def test_dataset(path: Path) -> None:
     def show_res(X, vector, target):
         print(f'X shape = {X.shape}, vector shape = {vector.shape}, target shape = {target.shape}')
         print(X[0, -1, :])
         print(target)
         
     
-
     df = pd.read_csv(path, parse_dates=["month", "date"])
-    
-    dataset = SiburDataset(
-        data=df,
-        period={
-            'start': '2018-01-01',
-            'end': '2020-07-01'
-            },
-        task='train'
-        )
-    print(len(dataset))
-    next(iter(dataset))
-
-
     train_dataloader = get_loader(
         df,
         shuffle=True,
@@ -393,5 +380,5 @@ def test_dataset(path):
 
 
 if __name__ == '__main__':
-    path = '../sc2021_train_deals.csv'
+    path = Path('sc2021_train_deals.csv')
     test_dataset(path)

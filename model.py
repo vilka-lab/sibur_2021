@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-
+from __future__ import annotations
 import torch
 import pickle
 from datetime import datetime
@@ -10,19 +9,27 @@ from pathlib import Path
 import os
 from sklearn.metrics import mean_squared_log_error
 import torch.nn.functional as F
+from typing import Optional, Dict
+from torch.utils.data import DataLoader
+StorageType = Dict[str, list]
 
 
 class SiburModel(torch.nn.Module):
-    def __init__(self, device=None, seed=42):
+    def __init__(
+            self,
+            device: Optional[str] = None,
+            seed: int = 42,
+            hidden_size: int = 128,
+            vector_size: int = 542,
+            vector_embedding: int = 64,
+            seq_length: int = 12
+            ) -> None:
         torch.manual_seed(seed)
         super().__init__()
-        hidden_size = 128
-        self.lstm = torch.nn.LSTM(12, hidden_size, batch_first=True,
+        self.lstm = torch.nn.LSTM(seq_length, hidden_size, batch_first=True,
                                   num_layers=1, bidirectional=False,
-                                  dropout=0.5, bias=False)
+                                  bias=False)
 
-        vector_size = 542
-        vector_embedding = 64
         self.cat_linear = torch.nn.Linear(vector_size, vector_embedding, bias=False)
 
         linear_hidden_size = hidden_size + vector_embedding
@@ -30,10 +37,7 @@ class SiburModel(torch.nn.Module):
                                         bias=False)
         self.linear_2 = torch.nn.Linear(linear_hidden_size*2, 1,
                                         bias=False)
-
         self.relu = torch.nn.ReLU()
-
-        # self.apply(weights_init_uniform_rule)
 
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -42,7 +46,7 @@ class SiburModel(torch.nn.Module):
         self.epoch = 0
 
 
-    def forward(self, X, vector):
+    def forward(self, X: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
         X = X.log1p() - 2.67
         lstm_out, hidden = self.lstm(X)
         vector = self.cat_linear(vector)
@@ -59,7 +63,7 @@ class SiburModel(torch.nn.Module):
         return X
 
 
-    def save_model(self, path):
+    def save_model(self, path: Path) -> None:
         path = str(path)
         # for correct save batch norm after validation step
         self.train()
@@ -71,7 +75,7 @@ class SiburModel(torch.nn.Module):
         torch.save(checkpoint, path)
 
 
-    def load_model(self, path, load_train_info=False):
+    def load_model(self, path: Path, load_train_info: bool = False) -> None:
         path = str(path)
 
         if self.device == 'cpu':
@@ -87,7 +91,7 @@ class SiburModel(torch.nn.Module):
             self.scheduler = checkpoint['lr_sched']
 
 
-    def load_file(self, filename):
+    def load_file(self, filename: Path) -> None:
         filename = str(filename)
         try:
             with open(filename, 'rb') as f:
@@ -99,13 +103,13 @@ class SiburModel(torch.nn.Module):
         return obj
 
 
-    def save_file(self, filename, obj):
+    def save_file(self, filename: Path, obj: object) -> None:
         filename = str(filename)
         with open(filename, 'wb') as f:
             pickle.dump(obj, f)
 
 
-    def load_storage(self, path):
+    def load_storage(self, path: Path) -> StorageType:
         obj = {}
         obj['train_losses'] = self.load_file(path.joinpath('train_losses'))
         obj['train_metrics'] = self.load_file(path.joinpath('train_metrics'))
@@ -114,14 +118,14 @@ class SiburModel(torch.nn.Module):
         return obj
 
 
-    def save_storage(self, path, obj):
+    def save_storage(self, path: Path, obj: StorageType) -> None:
         self.save_file(path.joinpath('train_losses'), obj['train_losses'])
         self.save_file(path.joinpath('train_metrics'), obj['train_metrics'])
         self.save_file(path.joinpath('test_losses'), obj['test_losses'])
         self.save_file(path.joinpath('test_metrics'), obj['test_metrics'])
 
 
-    def save_each_period(self, path, period=60*60):
+    def save_each_period(self, path: Path, period: int = 60*60):
         now = datetime.now()
         path = str(path)
 
@@ -135,26 +139,38 @@ class SiburModel(torch.nn.Module):
 
 
     @staticmethod
-    def metric(preds, gt):
+    def metric(preds: np.array, gt: np.array) -> float:
         score = mean_squared_log_error(preds, gt) ** 0.5
         return score
 
 
-    def create_optimizer(self, learning_rate=1e-3, weight_decay=0):
+    def create_optimizer(
+            self,
+            learning_rate: float = 1e-3,
+            weight_decay: float = 0.0
+            ) -> None:
         self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate,
                                           weight_decay=weight_decay)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer)
 
 
-    def fit(self, num_epochs, train_loader, val_loader=None,
-              folder='experiment', learning_rate=1e-3, weight_decay=0,
-              save_period=60*60):
+    def fit(
+            self,
+            num_epochs: int,
+            train_loader: DataLoader,
+            val_loader: Optional[DataLoader] = None,
+            folder: str = 'experiment',
+            model_name: str = 'last.pth',
+            learning_rate: float = 1e-3, 
+            weight_decay: float = 0.0,
+            save_period: int = 60*60
+            ) -> StorageType:
         if not Path(folder).exists():
             os.mkdir(folder)
         path = Path('./').joinpath(folder)
         storage = self.load_storage(path)
 
-        model_path = path.joinpath('last.pth')
+        model_path = path.joinpath(model_name)
 
         self.saver = self.save_each_period(model_path, save_period)
         self.loss = RMSLE
@@ -177,7 +193,11 @@ class SiburModel(torch.nn.Module):
         return storage
 
 
-    def _train_loop(self, train_loader, storage):
+    def _train_loop(
+            self,
+            train_loader: DataLoader,
+            storage: StorageType
+            ) -> None:
         self.train()
         losses = []
         predictions = []
@@ -211,7 +231,7 @@ class SiburModel(torch.nn.Module):
                 progress_bar.set_description('Epoch {}: loss = {:.4f}'.format(
                                              self.epoch, loss_val))
 
-            # calculate f1
+            # calculate metrics
             predictions = np.concatenate(predictions)
             gt = np.concatenate(gt)
             metric_val = self.metric(predictions, gt)
@@ -222,7 +242,11 @@ class SiburModel(torch.nn.Module):
         storage['train_metrics'].append(metric_val)
 
 
-    def _test_loop(self, val_loader, storage):
+    def _test_loop(
+            self,
+            val_loader: DataLoader,
+            storage: StorageType
+            ) -> None:
         self.eval()
         predictions = []
         gt = []
@@ -247,7 +271,7 @@ class SiburModel(torch.nn.Module):
                     progress_bar.update()
                     progress_bar.set_description('Validation: loss = {:.4f}'.format(loss_val))
 
-                # calculate f1
+                # calculate metrics
                 predictions = np.concatenate(predictions)
                 gt = np.concatenate(gt)
                 metric_val = self.metric(predictions, gt)
@@ -259,7 +283,11 @@ class SiburModel(torch.nn.Module):
         storage['test_metrics'].append(metric_val)
 
 
-    def visualize(self, folder, storage=None):
+    def visualize(
+            self,
+            folder: str,
+            storage: Optional[StorageType] = None
+            ) -> None:
         path = Path('./').joinpath(folder)
 
         if storage is None:
@@ -279,7 +307,11 @@ class SiburModel(torch.nn.Module):
         plt.close(fig)
 
 
-    def predict(self, dataloader, verbose=True):
+    def predict(
+            self,
+            dataloader: DataLoader,
+            verbose: bool = True
+            ) -> np.array:
         self.eval()
         result = []
         with torch.no_grad():
@@ -292,14 +324,8 @@ class SiburModel(torch.nn.Module):
         return result
 
 
-    def postprocessing(self, gt):
-        self.rounder = Rounder(100)
-        gt = [self.rounder.get_nearest_value(x) for x in gt]
-        return np.array(gt)
-
-
 class Ensemble():
-    def __init__(self, model_paths, **params):
+    def __init__(self, model_paths: list[Path], **params) -> None:
         self.models = []
 
         for path in model_paths:
@@ -307,51 +333,29 @@ class Ensemble():
             if path.exists():
                 model = SiburModel(**params)
                 model.load_model(path)
-                print('Модель загружена с', path)
+                print('Model loaded from', path)
                 self.models.append(model)
             else:
-                raise ValueError(f'Модель не найдена {path}')
+                raise ValueError(f'Model not found {path}')
 
 
-    def predict(self, dataloader, verbose=True):
+    def predict(
+            self,
+            dataloader: DataLoader,
+            verbose: bool = True
+            ) -> np.array:
         res = []
         for model in self.models:
             pred = model.predict(dataloader, verbose)
             res.append(pred)
-            print(pred.mean())
 
         res = sum(res) / len(res)
         res = np.array(res)
-        print(res.mean())
         return res
 
 
-def RMSLE(pred, gt):
-    pred = torch.log(pred + 1)
-    gt = torch.log(gt + 1)
+def RMSLE(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+    pred = torch.log1p(pred)
+    gt = torch.log1p(gt)
     return F.mse_loss(pred, gt) ** 0.5
-    # return (((torch.log(gt + 1) - torch.log(pred + 1)) ** 2) ** 0.5).mean()
 
-
-class Rounder():
-    def __init__(self, bins=100):
-        self.values = np.linspace(0, 9, bins)
-
-
-    def get_nearest_value(self, num):
-        """get nearest log"""
-        num = np.log1p(num)
-        num = min(self.values, key=lambda x: abs(x - num))
-        num = np.exp(num) - 1
-        return num
-
-
-def weights_init_uniform_rule(m):
-    """https://stackoverflow.com/questions/49433936/how-to-initialize-weights-in-pytorch"""
-    classname = m.__class__.__name__
-    # for every Linear layer in a model..
-    if classname.find('Linear') != -1:
-        # get the number of the inputs
-        n = m.in_features
-        y = 1.0/np.sqrt(n)
-        m.weight.data.uniform_(-y, y)

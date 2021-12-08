@@ -1,3 +1,4 @@
+from __future__ import annotations
 from model import SiburModel
 import pathlib
 from dataset import get_loader
@@ -7,7 +8,7 @@ import pandas as pd
 
 
 @click.command()
-@click.option('--data', help='Path to train data', default='../sc2021_train_deals.csv')
+@click.option('--data', help='Path to train data', default='sc2021_train_deals.csv')
 @click.option('--model_weights', help='Path to saved model', default='./experiment/last.pth')
 @click.option('--lr', help='Learning rate', default=1e-3)
 @click.option('--weight_decay', default = 5e-3)
@@ -36,7 +37,7 @@ def main(
     model_path = pathlib.Path(model_weights)
     if model_path.exists():
         model.load_model(model_path, load_train_info=resume)
-        print('Модель загружена с', model_path)
+        print('Model loaded from', model_path)
 
     df = pd.read_csv(data, parse_dates=["month", "date"])   
     train_dataloader = get_loader(
