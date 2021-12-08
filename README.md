@@ -1,6 +1,6 @@
 # sibur challange 2021
 
-Решение на 6 место: https://sibur.ai-community.com/competitions/5/uploads/13
+Решение на 6 место: https://sibur.ai-community.com/competitions/5/tasks/13
 
 Скор 1.4066/1.4159 public/private. Архитектура - однослойный однонаправленный LSTM.
 
