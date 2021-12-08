@@ -1,4 +1,3 @@
-from __future__ import annotations
 from model import SiburModel
 import pathlib
 from dataset import get_loader

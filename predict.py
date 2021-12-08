@@ -5,9 +5,10 @@ sys.path.append(str(ABS_PATH))
 from model import Ensemble
 from dataset import get_loader
 import pandas as pd
+from typing import List
 
 
-def load_model(model_weights: list[Path]) -> Ensemble:
+def load_model(model_weights: List[Path]) -> Ensemble:
     model = Ensemble(model_weights)
     return model
 

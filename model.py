@@ -1,4 +1,3 @@
-from __future__ import annotations
 import torch
 import pickle
 from datetime import datetime
@@ -9,9 +8,9 @@ from pathlib import Path
 import os
 from sklearn.metrics import mean_squared_log_error
 import torch.nn.functional as F
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from torch.utils.data import DataLoader
-StorageType = Dict[str, list]
+StorageType = Dict[str, List[float]]
 
 
 class SiburModel(torch.nn.Module):
@@ -325,7 +324,7 @@ class SiburModel(torch.nn.Module):
 
 
 class Ensemble():
-    def __init__(self, model_paths: list[Path], **params) -> None:
+    def __init__(self, model_paths: List[Path], **params) -> None:
         self.models = []
 
         for path in model_paths:

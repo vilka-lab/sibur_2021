@@ -1,4 +1,3 @@
-from __future__ import annotations
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy as np
@@ -6,7 +5,7 @@ import pickle
 import pandas as pd
 from tqdm import tqdm
 from sklearn.preprocessing import OneHotEncoder
-from typing import Optional
+from typing import Optional, Dict, Tuple
 from pathlib import Path
 
 
@@ -15,7 +14,7 @@ class SiburDataset(Dataset):
             self,
             data: pd.DataFrame,
             encoder: Optional[OneHotEncoder] = None,
-            period: Optional[dict[str, str]] = None,
+            period: Optional[Dict[str, str]] = None,
             task: str = 'train',
             seq_range: int = 13
             ) -> None:
@@ -142,7 +141,7 @@ class SiburDataset(Dataset):
         self.data = pd.concat(groups, axis=0)
 
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, ...]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, ...]:
         row = self.data.iloc[index]
         row = row.sort_index()
 
@@ -285,7 +284,7 @@ def get_loader(
         df: pd.DataFrame,
         encoder_path: Optional[Path] = None,
         shuffle: bool = False,
-        period: Optional[dict[str, str]] = None,
+        period: Optional[Dict[str, str]] = None,
         num_workers: int = 0,
         task: str = 'train',
         batch_size: int = 1,
